@@ -1,0 +1,439 @@
+<!-- /home/sonthl/setup/docker/media-lite/templates/images.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Image List</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0 20px;
+        }
+
+        .navbar {
+            background-color: #333;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            padding: 10px 16px;
+        }
+
+        .navbar a {
+            color: #f2f2f2;
+            text-decoration: none;
+            padding: 12px 16px;
+            display: block;
+        }
+
+        .navbar a:hover {
+            background-color: #ddd;
+            color: black;
+        }
+
+        .navbar .spacer {
+            flex-grow: 1;
+        }
+
+        .navbar .user-info {
+            margin-left: auto;
+            color: #f2f2f2;
+            padding: 12px 16px;
+            cursor: pointer;
+        }
+
+        @media (max-width: 600px) {
+            .navbar {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .navbar a,
+            .navbar .user-info {
+                width: 100%;
+                padding: 10px 12px;
+            }
+
+            .navbar .user-info {
+                margin-left: 0;
+            }
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .image-item {
+            border: 1px solid #ccc;
+            padding: 10px;
+            background: #f9f9f9;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .thumbnail-container {
+            position: relative;
+            width: 100%;
+            cursor: pointer;
+            background: transparent;
+        }
+
+        .thumbnail-container img {
+            width: 100%;
+            height: auto;
+            object-fit: contain;
+            border-radius: 4px;
+        }
+
+        #loading {
+            text-align: center;
+            padding: 20px;
+            display: none;
+        }
+
+        #lightbox {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            z-index: 1000;
+            overflow: hidden;
+        }
+
+        #lightbox-img {
+            max-width: 90%;
+            max-height: 80vh;
+            margin-bottom: 10px;
+            transition: transform 0.2s ease-in-out;
+            position: relative;
+            z-index: 0;
+            cursor: grab;
+        }
+
+        #lightbox-caption {
+            color: white;
+            margin-bottom: 20px;
+            max-width: 90%;
+            word-wrap: break-word;
+            text-align: center;
+            font-size: 16px;
+        }
+
+        .lightbox-controls {
+            display: flex;
+            gap: 20px;
+        }
+
+        .lightbox-controls button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        #close-btn {
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            color: white;
+            font-size: 30px;
+            cursor: pointer;
+            z-index: 1;
+        }
+
+        .zoom-buttons {
+            margin: 10px 0;
+            z-index: 1;
+            position: relative;
+        }
+
+        .zoom-buttons button {
+            padding: 6px 12px;
+            font-size: 18px;
+            margin: 0 5px;
+            cursor: pointer;
+        }
+
+        .filename {
+            font-size: 14px;
+            margin: 8px 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        button {
+            padding: 6px 12px;
+            background-color: #ff4d4d;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #e60000;
+        }
+
+        .category-filter {
+            margin: 20px 0;
+            text-align: left;
+            max-width: 300px;
+        }
+
+        .category-filter select {
+            padding: 8px;
+            font-size: 16px;
+            border-radius: 4px;
+            width: 100%;
+        }
+
+        .category-filter label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="navbar">
+        <a href="/">Home</a>
+        <a href="/videos">Videos</a>
+        <a href="/upload">Upload Video</a>
+        <a href="/upload-image">Upload Image</a>
+        <a href="/manage-categories">Manage Categories</a>
+        <div class="spacer"></div>
+        <a href="/logout" class="user-info" onclick="return confirm('Are you sure you want to logout?')">Logout ({{ user }})</a>
+    </div>
+	
+    <div class="category-filter">
+        <label for="category-select">Select Category:</label>
+        <select id="category-select" onchange="filterByCategory()">
+            <option value="">No category</option>
+            <option value="all" selected>All</option>
+            {% for category in categories if category.id != 0 %}
+            <option value="{{ category.id }}">{{ category.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div id="image-container" class="grid"></div>
+    <div id="loading">Loading...</div>
+
+    <!-- Lightbox -->
+    <div id="lightbox">
+        <span id="close-btn" onclick="closeLightbox()">&times;</span>
+        <img id="lightbox-img" src="" alt="">
+        <div class="zoom-buttons">
+            <button onclick="zoomIn()">+</button>
+            <button onclick="zoomOut()">-</button>
+        </div>
+        <div id="lightbox-caption"></div>
+        <div class="lightbox-controls">
+            <button onclick="prevImage()">&#8592; Prev</button>
+            <button onclick="nextImage()">Next &#8594;</button>
+        </div>
+    </div>
+
+    <script>
+        let imagesList = [];
+        let currentIndex = 0;
+        let page = 1;
+        const perPage = 12;
+        let loading = false;
+        let reachedEnd = false;
+        let zoomLevel = 1;
+        let translateX = 0;
+        let translateY = 0;
+        let isDragging = false;
+        let startX = 0;
+        let startY = 0;
+        let selectedCategory = 'all';
+
+        const img = document.getElementById('lightbox-img');
+
+        function updateImageTransform() {
+            img.style.transform = `scale(${zoomLevel}) translate(${translateX}px, ${translateY}px)`;
+        }
+
+        function resetImageTransform() {
+            zoomLevel = 1;
+            translateX = 0;
+            translateY = 0;
+            updateImageTransform();
+        }
+
+        function openLightbox(index) {
+            currentIndex = index;
+            const filename = imagesList[currentIndex];
+            const caption = document.getElementById('lightbox-caption');
+            img.src = `/static/images/${filename}`;
+            caption.innerText = filename;
+            document.getElementById('lightbox').style.display = 'flex';
+            resetImageTransform();
+        }
+
+        function closeLightbox() {
+            document.getElementById('lightbox').style.display = 'none';
+            resetImageTransform();
+        }
+
+        function nextImage() {
+            if (currentIndex < imagesList.length - 1) {
+                openLightbox(currentIndex + 1);
+            }
+        }
+
+        function prevImage() {
+            if (currentIndex > 0) {
+                openLightbox(currentIndex - 1);
+            }
+        }
+
+        function zoomIn() {
+            zoomLevel += 0.2;
+            updateImageTransform();
+        }
+
+        function zoomOut() {
+            zoomLevel = Math.max(0.2, zoomLevel - 0.2);
+            updateImageTransform();
+        }
+
+        img.addEventListener('dblclick', () => {
+            resetImageTransform();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeLightbox();
+            }
+        });
+
+        img.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            isDragging = true;
+            startX = e.clientX - translateX;
+            startY = e.clientY - translateY;
+            img.style.cursor = 'grabbing';
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            translateX = e.clientX - startX;
+            translateY = e.clientY - startY;
+            updateImageTransform();
+        });
+
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+            img.style.cursor = 'grab';
+        });
+
+        img.addEventListener('dragstart', (e) => {
+            e.preventDefault();
+        });
+
+        img.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 1) {
+                isDragging = true;
+                startX = e.touches[0].clientX - translateX;
+                startY = e.touches[0].clientY - translateY;
+            }
+        });
+
+        img.addEventListener('touchmove', (e) => {
+            if (!isDragging || e.touches.length !== 1) return;
+            translateX = e.touches[0].clientX - startX;
+            translateY = e.touches[0].clientY - startY;
+            updateImageTransform();
+            e.preventDefault();
+        }, { passive: false });
+
+        img.addEventListener('touchend', () => {
+            isDragging = false;
+        });
+
+        function filterByCategory() {
+            selectedCategory = document.getElementById('category-select').value;
+            imagesList = [];
+            page = 1;
+            reachedEnd = false;
+            document.getElementById('image-container').innerHTML = '';
+            loadImages();
+        }
+
+        async function loadImages() {
+            if (loading || reachedEnd) return;
+            loading = true;
+            document.getElementById('loading').style.display = 'block';
+
+            try {
+                const url = selectedCategory 
+                    ? `/api/images?page=${page}&per_page=${perPage}&category_id=${selectedCategory}`
+                    : `/api/images?page=${page}&per_page=${perPage}`;
+                const res = await fetch(url);
+                const data = await res.json();
+                const container = document.getElementById('image-container');
+
+                if (!data.images || data.images.length === 0) {
+                    reachedEnd = true;
+                    document.getElementById('loading').innerText = "No more images";
+                    return;
+                }
+
+                data.images.forEach((filename) => {
+                    const indexInList = imagesList.length;
+                    imagesList.push(filename);
+
+                    const div = document.createElement('div');
+                    div.className = 'image-item';
+                    const timestamp = Date.now();
+                    div.innerHTML = `
+                        <div class="thumbnail-container" onclick="openLightbox(${indexInList})">
+                            <img src="/static/thumbnails/thumb_${filename}?t=${timestamp}" alt="${filename}" onerror="this.src='/static/thumbnails/fallback.jpg?t=${timestamp}';">
+                        </div>
+                        <p class="filename" title="${filename}">${filename}</p>
+                        <form method="post" action="/delete-image" onsubmit="return confirm('Delete this image?');">
+                            <input type="hidden" name="filename" value="${filename}">
+                            <button type="submit">Delete</button>
+                        </form>
+                    `;
+                    container.appendChild(div);
+                });
+
+                page++;
+                document.getElementById('loading').style.display = 'none';
+            } catch (error) {
+                console.error("Error loading images:", error);
+                document.getElementById('loading').innerText = "Failed to load images";
+            } finally {
+                loading = false;
+            }
+
+            if (document.body.scrollHeight <= window.innerHeight && !reachedEnd) {
+                loadImages();
+            }
+        }
+
+        window.addEventListener('scroll', () => {
+            if ((window.innerHeight + window.scrollY) >= document.body.scrollHeight - 200) {
+                loadImages();
+            }
+        });
+
+        window.addEventListener('load', () => {
+            loadImages();
+        });
+    </script>
+</body>
+</html>

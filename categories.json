@@ -1,0 +1,18 @@
+{
+  "categories": [
+    {
+      "id": 0,
+      "name": "All"
+    },
+    {
+      "id": 1,
+      "name": "Cafe"
+    },
+    {
+      "id": 2,
+      "name": "Relax"
+    }
+  ],
+  "image_categories": [],
+  "video_categories": []
+}
