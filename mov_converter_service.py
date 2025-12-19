@@ -1,16 +1,47 @@
 import os
 import time
 import subprocess
+import json
 from pathlib import Path
 
 VIDEO_DIR = "static/videos"
 THUMBNAIL_DIR = "static/thumbnails"
 CHECK_INTERVAL = 5  # seconds
 
+def get_video_rotation(video_path):
+    """Extract rotation metadata from video."""
+    try:
+        cmd = [
+            'ffprobe',
+            '-v', 'error',
+            '-select_streams', 'v:0',
+            '-show_entries', 'stream_tags=rotate:stream_side_data=rotation',
+            '-of', 'json',
+            video_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.stdout:
+            data = json.loads(result.stdout)
+            streams = data.get('streams', [])
+            if streams:
+                stream = streams[0]
+                tags = stream.get('tags', {})
+                if 'rotate' in tags:
+                    return int(tags['rotate'])
+                if 'side_data_list' in stream:
+                    for side_data in stream['side_data_list']:
+                        if 'rotation' in side_data:
+                            return int(side_data['rotation'])
+        return 0
+    except Exception as e:
+        print(f"Error getting rotation: {str(e)}")
+        return 0
+
 def convert_mov_to_mp4(mov_path, mp4_path):
     try:
         print(f"Starting conversion with rotation fix: {mov_path} -> {mp4_path}")
-        
+
         # Detect rotation (có thể là 90, -90, 270, 180)
         rotation = get_video_rotation(mov_path)
         print(f"Detected rotation metadata: {rotation} degrees")

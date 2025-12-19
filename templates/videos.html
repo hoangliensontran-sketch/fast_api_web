@@ -75,6 +75,12 @@
             text-align: center;
         }
 
+        /* Portrait videos take up less horizontal space */
+        .video-item.portrait {
+            max-width: 300px;
+            justify-self: center;
+        }
+
         .thumbnail-container {
             position: relative;
             width: 100%;
@@ -87,6 +93,11 @@
             height: auto;
             object-fit: contain;
             border-radius: 4px;
+        }
+
+        /* Portrait thumbnail styling */
+        .thumbnail-container.portrait img {
+            max-height: 400px;
         }
 
         .thumbnail-container::before {
@@ -139,17 +150,9 @@
             max-height: 100%;
         }
 
-        /* Video rotation classes */
-        .rotate-90 {
-            transform: rotate(90deg);
-        }
-
-        .rotate-180 {
-            transform: rotate(180deg);
-        }
-
-        .rotate-270, .rotate-neg-90 {
-            transform: rotate(270deg);
+        /* Portrait video styling */
+        .video-item.portrait video {
+            max-height: 500px;
         }
 
         /* Fullscreen video styles */
@@ -179,32 +182,6 @@
             height: 100%;
             object-fit: contain;
             background-color: black;
-        }
-
-        /* Maintain rotation in fullscreen - IMPORTANT: transform must override default */
-        video.rotate-90:fullscreen,
-        video.rotate-90:-webkit-full-screen,
-        video.rotate-90:-moz-full-screen,
-        video.rotate-90:-ms-fullscreen {
-            transform: rotate(90deg) !important;
-        }
-
-        video.rotate-180:fullscreen,
-        video.rotate-180:-webkit-full-screen,
-        video.rotate-180:-moz-full-screen,
-        video.rotate-180:-ms-fullscreen {
-            transform: rotate(180deg) !important;
-        }
-
-        video.rotate-270:fullscreen,
-        video.rotate-270:-webkit-full-screen,
-        video.rotate-270:-moz-full-screen,
-        video.rotate-270:-ms-fullscreen,
-        video.rotate-neg-90:fullscreen,
-        video.rotate-neg-90:-webkit-full-screen,
-        video.rotate-neg-90:-moz-full-screen,
-        video.rotate-neg-90:-ms-fullscreen {
-            transform: rotate(270deg) !important;
         }
 
         #loading {
@@ -287,7 +264,7 @@
         let reachedEnd = false;
         let selectedCategory = 'all';
 
-        async function playVideo(element, filename) {
+        async function playVideo(element, filename, orientation) {
             const videoItem = element.closest('.video-item');
             videoItem.innerHTML = `
                 <video controls playsinline>
@@ -300,62 +277,16 @@
                     <button type="submit">Delete</button>
                 </form>
             `;
+
+            // Maintain portrait class if applicable
+            if (orientation === 'portrait') {
+                videoItem.classList.add('portrait');
+            }
+
             const video = videoItem.querySelector('video');
 
-            // Fetch and apply rotation metadata
-            try {
-                const response = await fetch(`/api/video-metadata/${encodeURIComponent(filename)}`);
-                if (response.ok) {
-                    const metadata = await response.json();
-                    if (metadata.rotation) {
-                        // Store rotation value as data attribute
-                        video.dataset.rotation = metadata.rotation;
-
-                        // Apply rotation class based on metadata
-                        let rotationClass = '';
-                        if (metadata.rotation === 90) {
-                            rotationClass = 'rotate-90';
-                        } else if (metadata.rotation === 180 || metadata.rotation === -180) {
-                            rotationClass = 'rotate-180';
-                        } else if (metadata.rotation === 270 || metadata.rotation === -90) {
-                            rotationClass = 'rotate-neg-90';
-                        }
-
-                        if (rotationClass) {
-                            video.classList.add(rotationClass);
-
-                            // Store rotation class as data attribute for persistence
-                            video.dataset.rotationClass = rotationClass;
-
-                            // Add fullscreen change listeners to maintain rotation
-                            const maintainRotation = () => {
-                                const isFullscreen = document.fullscreenElement === video ||
-                                    document.webkitFullscreenElement === video ||
-                                    document.mozFullScreenElement === video ||
-                                    document.msFullscreenElement === video;
-
-                                if (isFullscreen) {
-                                    // Force reapply rotation class when entering fullscreen
-                                    video.classList.remove('rotate-90', 'rotate-180', 'rotate-270', 'rotate-neg-90');
-                                    video.classList.add(rotationClass);
-                                    console.log(`Fullscreen entered: Applied ${rotationClass}`);
-                                } else {
-                                    // Ensure rotation is maintained when exiting fullscreen
-                                    video.classList.add(rotationClass);
-                                    console.log(`Fullscreen exited: Maintained ${rotationClass}`);
-                                }
-                            };
-
-                            document.addEventListener('fullscreenchange', maintainRotation);
-                            document.addEventListener('webkitfullscreenchange', maintainRotation);
-                            document.addEventListener('mozfullscreenchange', maintainRotation);
-                            document.addEventListener('MSFullscreenChange', maintainRotation);
-                        }
-                    }
-                }
-            } catch (error) {
-                console.warn("Could not fetch video metadata:", error);
-            }
+            // No need to apply rotation transforms - the browser handles rotation metadata correctly
+            // The orientation class on the container ensures proper portrait/landscape display
 
             video.play().catch(error => {
                 console.warn("Autoplay was prevented:", error);
@@ -389,12 +320,21 @@
                     return;
                 }
 
-                data.videos.forEach(filename => {
+                data.videos.forEach(videoData => {
+                    const filename = videoData.filename;
+                    const orientation = videoData.orientation;
+
                     const div = document.createElement('div');
                     div.className = 'video-item';
+
+                    // Add portrait class if video is portrait
+                    if (orientation === 'portrait') {
+                        div.classList.add('portrait');
+                    }
+
                     const thumbnail = `/static/thumbnails/${filename.replace(/\.(mp4|mov|avi|mkv)$/i, '.jpg')}?t=${Date.now()}`;
                     div.innerHTML = `
-                        <div class="thumbnail-container" onclick="playVideo(this, '${filename}')">
+                        <div class="thumbnail-container ${orientation === 'portrait' ? 'portrait' : ''}" onclick="playVideo(this, '${filename}', '${orientation}')">
                             <img class="thumbnail" src="${thumbnail}" alt="${filename}" onerror="this.src='/static/thumbnails/fallback.jpg?t=${Date.now()}';">
                         </div>
                         <div class="filename">${filename}</div>

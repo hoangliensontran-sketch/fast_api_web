@@ -51,84 +51,109 @@ def is_valid_video(filename):
 
 def is_valid_image(filename):
     return filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))
+    
+from pymediainfo import MediaInfo
+
+def get_video_orientation(video_path):
+    """
+    Kiểm tra video là dọc (portrait) hay ngang (landscape) sau khi tính rotation metadata.
+    Trả về: 'portrait', 'landscape', hoặc None nếu lỗi
+    """
+    try:
+        media_info = MediaInfo.parse(video_path)
+        
+        for track in media_info.tracks:
+            if track.track_type == "Video":
+                width = track.width or 0
+                height = track.height or 0
+                
+                if width == 0 or height == 0:
+                    continue
+                
+                print(f"Original dimensions: {width}x{height}")
+                
+                rotation = 0.0
+                rotation_str = getattr(track, 'rotation', None)
+                
+                if rotation_str:
+                    try:
+                        rotation = float(str(rotation_str).replace("°", "").strip())
+                        print(f"Parsed rotation: {rotation}°")
+                    except:
+                        rotation = 0.0
+                else:
+                    print("No rotation metadata")
+                
+                # Nếu rotation 90° hoặc 270° (hoặc -90°, -270°), swap dimensions
+                if abs(rotation) % 360 in [90, 270]:
+                    width, height = height, width
+                    print(f"After rotation swap: {width}x{height}")
+                
+                if width > height:
+                    return "landscape"
+                elif height > width:
+                    return "portrait"
+                else:
+                    return "square"
+        
+        return None
+    except Exception as e:
+        print(f"Error get_video_orientation: {e}")
+        return None
 
 def fix_video_rotation(video_path):
-    """Fix video rotation by re-encoding if rotation metadata is present."""
-    import json
+    print(f"Checking orientation for {video_path}...")
+    orientation = get_video_orientation(video_path)
+    if orientation != "portrait":
+        print(f"Video is {orientation or 'unknown'} - no rotation needed")
+        return True
+    print("Video is portrait - applying rotation fix")
+    vf_filter = "transpose=1"  # Clockwise 90° - fix đúng cho iPhone rotation 90°
+    print("Applying transpose=1 (clockwise 90°)")
+    temp_path = video_path + ".rotated.mp4"
+    cmd = [
+        'ffmpeg',
+        '-i', video_path,
+        '-vf', vf_filter,
+        '-c:v', 'libx264',
+        '-preset', 'fast',
+        '-crf', '23',
+        '-c:a', 'copy',
+        '-metadata:s:v:0', 'rotate=0',
+        '-y',
+        temp_path
+    ]
     try:
-        # Check for rotation metadata
-        cmd = [
-            'ffprobe',
-            '-v', 'error',
-            '-select_streams', 'v:0',
-            '-show_entries', 'stream_tags=rotate:stream_side_data=rotation',
-            '-of', 'json',
-            video_path
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        rotation = 0
-
-        if result.stdout:
-            data = json.loads(result.stdout)
-            streams = data.get('streams', [])
-            if streams:
-                stream = streams[0]
-                tags = stream.get('tags', {})
-                if 'rotate' in tags:
-                    rotation = int(tags['rotate'])
-                elif 'side_data_list' in stream:
-                    for side_data in stream['side_data_list']:
-                        if 'rotation' in side_data:
-                            rotation = int(side_data['rotation'])
-                            break
-
-        if rotation == 0:
-            return True  # No rotation needed
-
-        # Determine FFmpeg filter
-        if rotation == 90 or rotation == -270:
-            vf_filter = 'transpose=1'  # Clockwise (hiếm case)
-        elif rotation == -90 or rotation == 270:
-            vf_filter = 'transpose=2'  # Counter-clockwise - ĐÚNG CHO CASE IPHONE -90° PHỔ BIẾN
-            print("Applying transpose=2 for iPhone portrait (-90°)")
-        elif rotation == 180 or rotation == -180:
-            vf_filter = 'transpose=1,transpose=1'  # hoặc hflip,vflip
-        else:
-            print(f"Unsupported rotation: {rotation}")
+        result = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if not os.path.exists(temp_path) or os.path.getsize(temp_path) == 0:
+            print(f"✗ Rotation failed: temp file not created or empty")
             return False
-
-        # Re-encode with rotation applied
-        temp_output = video_path + '.rotated.mp4'
-        cmd = [
-            'ffmpeg',
-            '-i', video_path,
-            '-vf', vf_filter,
-            '-c:v', 'libx264',
-            '-preset', 'medium',
-            '-crf', '23',
-            '-c:a', 'aac',
-            '-b:a', '128k',
-            '-movflags', '+faststart',
-            '-metadata:s:v:0', 'rotate=0',
-            '-y',
-            temp_output
-        ]
-
-        print(f"Fixing rotation {rotation}° for {video_path}...")
-        result = subprocess.run(cmd, capture_output=True, text=True)
-
-        if result.returncode == 0 and os.path.exists(temp_output):
-            os.replace(temp_output, video_path)
-            print(f"✓ Rotation fixed for {video_path}")
-            return True
-        else:
-            print(f"Failed to fix rotation: {result.stderr}")
-            if os.path.exists(temp_output):
-                os.remove(temp_output)
-            return False
-
+        try:
+            verify_cmd = ['ffprobe', '-v', 'error', '-select_streams', 'v:0',
+                         '-show_entries', 'stream=width,height', '-of', 'json', temp_path]
+            verify_result = subprocess.run(verify_cmd, capture_output=True, text=True, check=True)
+            import json
+            data = json.loads(verify_result.stdout)
+            new_width = data['streams'][0]['width']
+            new_height = data['streams'][0]['height']
+            print(f"Rotated dimensions: {new_width}x{new_height}")
+            if new_width >= new_height:
+                print(f"✗ Warning: dimensions not swapped as expected after rotation")
+        except Exception as verify_error:
+            print(f"Warning: could not verify dimensions: {verify_error}")
+        os.remove(video_path)
+        os.rename(temp_path, video_path)
+        print("✓ Rotation fixed (portrait -> upright)")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"✗ FFmpeg error: {e.stderr.decode() if e.stderr else str(e)}")
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        return False
     except Exception as e:
-        print(f"Error fixing rotation: {str(e)}")
+        print(f"✗ Error fixing rotation: {str(e)}")
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
         return False
 
 def create_thumbnail(video_path, thumbnail_path):
@@ -219,8 +244,19 @@ async def api_video_list(page: int = 1, per_page: int = 6, category_id: Optional
         start = (page - 1) * per_page
         end = start + per_page
         videos = all_files[start:end]
+
+        # Get orientation for each video
+        videos_with_orientation = []
+        for video in videos:
+            video_path = os.path.join(VIDEO_DIR, video)
+            orientation = get_video_orientation(video_path) or "landscape"
+            videos_with_orientation.append({
+                "filename": video,
+                "orientation": orientation
+            })
+
         return JSONResponse({
-            "videos": videos,
+            "videos": videos_with_orientation,
             "page": page,
             "total": total
         })
@@ -343,8 +379,9 @@ async def upload_video(files: List[UploadFile] = File(...), category_id: Optiona
                 with open(video_path, "wb") as buffer:
                     shutil.copyfileobj(file.file, buffer)
 
-                # Fix rotation if present (applies rotation to video stream)
-                fix_video_rotation(video_path)
+                # Don't fix rotation - keep original metadata for proper orientation detection
+                # The frontend will handle rotation display correctly
+                # fix_video_rotation(video_path)
 
                 # Note: .mov files will be converted to .mp4 by the background converter service
                 create_thumbnail(video_path, thumbnail_path)
