@@ -1,8 +1,10 @@
+# /home/sonthl/setup/docker/fast_api_web/generate_thumbnails.py
+
 import os
 import subprocess
 
-VIDEO_DIR = '/home/sonthl/setup/docker/media-lite/static/videos'
-THUMBNAIL_DIR = '/home/sonthl/setup/docker/media-lite/static/thumbnails'
+VIDEO_DIR = '/home/sonthl/setup/docker/fast_api_web/static/videos'
+THUMBNAIL_DIR = '/home/sonthl/setup/docker/fast_api_web/static/thumbnails'
 
 os.makedirs(THUMBNAIL_DIR, exist_ok=True)
 
