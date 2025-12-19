@@ -9,27 +9,57 @@ CHECK_INTERVAL = 5  # seconds
 
 def convert_mov_to_mp4(mov_path, mp4_path):
     try:
-        print(f"Starting conversion: {mov_path} -> {mp4_path}")
-        cmd = [
-            'ffmpeg',
-            '-i', mov_path,
+        print(f"Starting conversion with rotation fix: {mov_path} -> {mp4_path}")
+        
+        # Detect rotation (có thể là 90, -90, 270, 180)
+        rotation = get_video_rotation(mov_path)
+        print(f"Detected rotation metadata: {rotation} degrees")
+        
+        # Detect dimensions gốc
+        probe_cmd = ['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'json', mov_path]
+        probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, check=True)
+        data = json.loads(probe_result.stdout)
+        width = data['streams'][0]['width']
+        height = data['streams'][0]['height']
+        print(f"Original dimensions: {width}x{height} (usually landscape for iPhone portrait)")
+        
+        # Logic xoay: iPhone portrait thường width > height + rotation = 90 hoặc -90
+        transpose_filter = ""
+        if rotation in [90, -90, 270, 180] or width > height:  # Force cho portrait
+            if rotation in [90, -90]:
+                transpose_filter = "transpose=1"  # Clockwise 90° - đúng cho hầu hết iPhone quay dọc (home button phải)
+                print("Applying transpose=1 (clockwise 90°)")
+            elif rotation == 270:
+                transpose_filter = "transpose=2"  # Counter-clockwise
+                print("Applying transpose=2")
+            elif rotation == 180:
+                transpose_filter = "hflip,vflip"
+            else:
+                transpose_filter = "transpose=1"  # Force mặc định
+        
+        # Build lệnh ffmpeg
+        cmd = ['ffmpeg', '-i', mov_path]
+        if transpose_filter:
+            cmd += ['-vf', transpose_filter]
+        
+        cmd += [
             '-c:v', 'libx264',
+            '-preset', 'fast',
+            '-crf', '23',
             '-c:a', 'aac',
-            '-strict', 'experimental',
+            '-b:a', '128k',
             '-movflags', '+faststart',
+            '-metadata:s:v:0', 'rotate=0',  # Xóa metadata
+            '-y',  # Overwrite
             mp4_path
         ]
-        result = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        print(f"Successfully converted: {mp4_path}")
+        
+        subprocess.run(cmd, check=True)
+        print(f"Conversion and rotation fix completed: {mp4_path}")
         return True
-    except subprocess.CalledProcessError as e:
-        print(f"Error converting {mov_path} to mp4: {e.stderr.decode()}")
-        return False
-    except FileNotFoundError:
-        print("FFmpeg not found. Please ensure FFmpeg is installed.")
-        return False
+        
     except Exception as e:
-        print(f"Error converting video: {str(e)}")
+        print(f"Error during conversion/rotation: {str(e)}")
         return False
 
 def scan_and_convert():
