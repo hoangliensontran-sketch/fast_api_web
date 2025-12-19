@@ -1,37 +1,20 @@
-# /home/sonthl/setup/docker/media-lite/docker-compose.yml
+# /home/sonthl/setup/docker/fast_api_web/docker-compose.yml
 
 services:
-  
-    db:
-        image: postgres:16.2
-        container_name: postgres
-        environment:
-            - POSTGRES_USER=media_user
-            - POSTGRES_PASSWORD=media_password
-            - POSTGRES_DB=media_db
-        ports:
-            - "5433:5432"
-        volumes:
-            - ./database/pgseed:/docker-entrypoint-initdb.d/
-            - ./database/pg-data:/var/lib/postgresql/data
-            - ./scripts:/opt/scripts
-        healthcheck:
-            test: ["CMD-SHELL", "pg_isready -U admin"]
-            interval: 10s
-            timeout: 5s
-            retries: 5
-    
-    web:
-        build: .
-        container_name: web_media
-        ports:
-            - "8000:8000"
-        volumes:
-            - ./main.py:/app/main.py
-            - ./templates:/app/templates
-            - ./static:/app/static
-            - ./scripts:/opt/scripts
-        depends_on:
-            - db
-        environment:
-            - DATABASE_URL=postgresql://media_user:media_password@db:5432/media_db
+  web:
+    build: .
+    container_name: fast_api_web
+    ports:
+      - "8001:8000"
+    volumes:
+      - .:/app
+      - ./static:/app/static
+      - ./scripts:/opt/scripts
+    environment:
+      - DATABASE_URL=postgresql://fastapi:123456@postgres5444:5432/fastapi
+    networks:
+      - infra_net
+
+networks:
+  infra_net:
+    external: true
