@@ -87,11 +87,12 @@ def fix_video_rotation(video_path):
 
         # Determine FFmpeg filter
         if rotation == 90 or rotation == -270:
-            vf_filter = 'transpose=2'
+            vf_filter = 'transpose=1'  # Clockwise (hiếm case)
         elif rotation == -90 or rotation == 270:
-            vf_filter = 'transpose=1'
+            vf_filter = 'transpose=2'  # Counter-clockwise - ĐÚNG CHO CASE IPHONE -90° PHỔ BIẾN
+            print("Applying transpose=2 for iPhone portrait (-90°)")
         elif rotation == 180 or rotation == -180:
-            vf_filter = 'transpose=1,transpose=1'
+            vf_filter = 'transpose=1,transpose=1'  # hoặc hflip,vflip
         else:
             print(f"Unsupported rotation: {rotation}")
             return False
