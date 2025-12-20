@@ -1,16 +1,18 @@
-from fastapi import FastAPI, File, UploadFile, Request, Form, Depends, Query
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi import FastAPI, File, UploadFile, Request, Form, Depends, Query, Body, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import shutil
 import os
 import subprocess
 from PIL import Image, ExifTags
-from sqlalchemy import create_engine, Column, Integer, String, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Boolean
 from sqlalchemy.orm import declarative_base, sessionmaker
 from typing import Optional, List
 import time
-from auth import get_current_user, require_login, COOKIE_NAME, create_session
+import zipfile
+import io
+from auth import get_current_user, require_login, COOKIE_NAME, create_session, require_permission, get_user_from_db, get_user_with_permissions
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -18,11 +20,13 @@ templates = Jinja2Templates(directory="templates")
 
 VIDEO_DIR = "static/videos"
 IMAGE_DIR = "static/images"
+DOCUMENT_DIR = "static/documents"
 THUMBNAIL_DIR = "static/thumbnails"
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://media_user:media_password@localhost:5432/media_db")
 
 os.makedirs(VIDEO_DIR, exist_ok=True)
 os.makedirs(IMAGE_DIR, exist_ok=True)
+os.makedirs(DOCUMENT_DIR, exist_ok=True)
 os.makedirs(THUMBNAIL_DIR, exist_ok=True)
 
 # SQLAlchemy setup
@@ -44,7 +48,38 @@ class VideoCategory(Base):
     filename = Column(String, primary_key=True)
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=False)
 
+class DocumentCategory(Base):
+    __tablename__ = "document_categories"
+    filename = Column(String, primary_key=True)
+    category_id = Column(Integer, ForeignKey("categories.id"), nullable=False)
+
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True)
+    username = Column(String, unique=True, nullable=False)
+    password = Column(String, nullable=False)
+    is_admin = Column(Boolean, default=False)
+    can_upload = Column(Boolean, default=True)
+    can_download = Column(Boolean, default=True)
+    can_delete = Column(Boolean, default=False)
+
 Session = sessionmaker(bind=engine)
+
+def require_admin(request: Request):
+    """Dependency to require admin permission"""
+    username = require_login(request)
+    user = get_user_from_db(username)
+
+    if not user:
+        # Fallback: if user not in DB but logged in as admin
+        if username == "admin":
+            return username
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    return username
 
 def is_valid_video(filename):
     return filename.lower().endswith(('.mp4', '.mov', '.avi', '.mkv'))
@@ -310,16 +345,25 @@ async def login_form(request: Request):
 
 @app.post("/login", response_class=HTMLResponse)
 async def login(request: Request, username: str = Form(...), password: str = Form(...)):
-    from auth import users
+    from auth import users, get_user_from_db
+
+    # Check database first
+    user = get_user_from_db(username)
+    if user and user.password == password:
+        response = RedirectResponse(url="/", status_code=303)
+        response.set_cookie(COOKIE_NAME, create_session(username), httponly=True)
+        return response
+
+    # Fallback to hardcoded users
     if username in users and users[username] == password:
         response = RedirectResponse(url="/", status_code=303)
         response.set_cookie(COOKIE_NAME, create_session(username), httponly=True)
         return response
-    else:
-        return templates.TemplateResponse("login.html", {
-            "request": request,
-            "error": "Invalid username or password"
-        })
+
+    return templates.TemplateResponse("login.html", {
+        "request": request,
+        "error": "Invalid username or password"
+    })
 
 @app.get("/logout")
 async def logout():
@@ -328,7 +372,8 @@ async def logout():
     return response
 
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request, page: int = 1, per_page: int = 5, user: str = Depends(get_current_user)):
+async def index(request: Request, page: int = 1, per_page: int = 5):
+    user_obj = get_user_with_permissions(request)
     all_videos = sorted(
         os.listdir(VIDEO_DIR),
         key=lambda f: os.path.getctime(os.path.join(VIDEO_DIR, f)),
@@ -344,21 +389,33 @@ async def index(request: Request, page: int = 1, per_page: int = 5, user: str = 
         "videos": videos,
         "page": page,
         "total_pages": total_pages,
-        "user": user
+        "user": user_obj
     })
 
 @app.get("/upload", response_class=HTMLResponse)
-async def upload_form(request: Request, user: str = Depends(require_login)):
+async def upload_form(request: Request, user: str = Depends(require_permission("upload"))):
+    user_obj = get_user_with_permissions(request)
     with Session() as session:
         categories = session.query(Category).order_by(Category.id).all()
         return templates.TemplateResponse("upload.html", {
             "request": request,
-            "user": user,
+            "user": user_obj,
+            "categories": categories
+        })
+
+@app.get("/upload-files", response_class=HTMLResponse)
+async def upload_files_form(request: Request, user: str = Depends(require_permission("upload"))):
+    user_obj = get_user_with_permissions(request)
+    with Session() as session:
+        categories = session.query(Category).order_by(Category.id).all()
+        return templates.TemplateResponse("upload_files.html", {
+            "request": request,
+            "user": user_obj,
             "categories": categories
         })
 
 @app.post("/upload")
-async def upload_video(files: List[UploadFile] = File(...), category_id: Optional[str] = Form(None), user: str = Depends(require_login)):
+async def upload_video(files: List[UploadFile] = File(...), category_id: Optional[str] = Form(None), user: str = Depends(require_permission("upload"))):
     if not files:
         return JSONResponse(status_code=400, content={"message": "No files uploaded"})
     if len(files) > 10:
@@ -399,7 +456,7 @@ async def upload_video(files: List[UploadFile] = File(...), category_id: Optiona
     return RedirectResponse(url="/videos", status_code=303)
 
 @app.post("/delete")
-async def delete_video(filename: str = Form(...), user: str = Depends(require_login)):
+async def delete_video(filename: str = Form(...), user: str = Depends(require_permission("delete"))):
     filepath = os.path.join(VIDEO_DIR, filename)
     base, ext = os.path.splitext(filename)
     thumbnail_path = os.path.join(THUMBNAIL_DIR, f"{base}.jpg")
@@ -419,6 +476,7 @@ async def delete_video(filename: str = Form(...), user: str = Depends(require_lo
 
 @app.get("/videos", response_class=HTMLResponse)
 async def video_page(request: Request, page: int = 1, per_page: int = 5, user: str = Depends(require_login)):
+    user_obj = get_user_with_permissions(request)
     with Session() as session:
         categories = session.query(Category).order_by(Category.id).all()
         all_files = sorted(
@@ -436,12 +494,13 @@ async def video_page(request: Request, page: int = 1, per_page: int = 5, user: s
             "videos": videos,
             "page": page,
             "total_pages": total_pages,
-            "user": user,
+            "user": user_obj,
             "categories": categories
         })
 
 @app.get("/images", response_class=HTMLResponse)
 async def image_page(request: Request, page: int = 1, per_page: int = 10, user: str = Depends(require_login)):
+    user_obj = get_user_with_permissions(request)
     with Session() as session:
         categories = session.query(Category).order_by(Category.id).all()
         all_files = [f for f in sorted(
@@ -459,22 +518,23 @@ async def image_page(request: Request, page: int = 1, per_page: int = 10, user: 
             "images": images,
             "page": page,
             "total_pages": total_pages,
-            "user": user,
+            "user": user_obj,
             "categories": categories
         })
 
 @app.get("/upload-image", response_class=HTMLResponse)
-async def upload_image_form(request: Request, user: str = Depends(require_login)):
+async def upload_image_form(request: Request, user: str = Depends(require_permission("upload"))):
+    user_obj = get_user_with_permissions(request)
     with Session() as session:
         categories = session.query(Category).order_by(Category.id).all()
         return templates.TemplateResponse("upload_image.html", {
             "request": request,
-            "user": user,
+            "user": user_obj,
             "categories": categories
         })
 
 @app.post("/upload-image")
-async def upload_image(files: List[UploadFile] = File(...), category_id: Optional[str] = Form(None), user: str = Depends(require_login)):
+async def upload_image(files: List[UploadFile] = File(...), category_id: Optional[str] = Form(None), user: str = Depends(require_permission("upload"))):
     if not files:
         return JSONResponse(status_code=400, content={"message": "No files uploaded"})
     if len(files) > 10:
@@ -508,8 +568,37 @@ async def upload_image(files: List[UploadFile] = File(...), category_id: Optiona
     
     return RedirectResponse(url="/images", status_code=303)
 
+@app.post("/upload-document")
+async def upload_document(files: List[UploadFile] = File(...), category_id: Optional[str] = Form(None), user: str = Depends(require_permission("upload"))):
+    if not files:
+        return JSONResponse(status_code=400, content={"message": "No files uploaded"})
+    if len(files) > 10:
+        return JSONResponse(status_code=400, content={"message": "Cannot upload more than 10 files at once"})
+
+    with Session() as session:
+        for file in files:
+            timestamp = int(time.time())
+            base, ext = os.path.splitext(file.filename)
+            unique_filename = f"{base}_{timestamp}{ext}"
+            filepath = os.path.join(DOCUMENT_DIR, unique_filename)
+            try:
+                with open(filepath, "wb") as buffer:
+                    shutil.copyfileobj(file.file, buffer)
+                if category_id and category_id.isdigit() and int(category_id) != 0:
+                    session.add(DocumentCategory(filename=unique_filename, category_id=int(category_id)))
+            except Exception as e:
+                print(f"Error processing file {file.filename}: {str(e)}")
+                continue
+        try:
+            session.commit()
+        except Exception as e:
+            print(f"Error updating database: {str(e)}")
+            return JSONResponse(status_code=500, content={"message": "Error updating database"})
+
+    return RedirectResponse(url="/documents", status_code=303)
+
 @app.post("/delete-image")
-async def delete_image(filename: str = Form(...), user: str = Depends(require_login)):
+async def delete_image(filename: str = Form(...), user: str = Depends(require_permission("delete"))):
     filepath = os.path.join(IMAGE_DIR, filename)
     thumbnail_path = os.path.join(THUMBNAIL_DIR, f"thumb_{filename}")
     if os.path.exists(filepath):
@@ -524,6 +613,21 @@ async def delete_image(filename: str = Form(...), user: str = Depends(require_lo
         except Exception as e:
             print(f"Error deleting image {filename}: {str(e)}")
             return JSONResponse(status_code=500, content={"message": "Error deleting image"})
+    return JSONResponse(status_code=404, content={"message": "File not found"})
+
+@app.post("/delete-document")
+async def delete_document(filename: str = Form(...), user: str = Depends(require_permission("delete"))):
+    filepath = os.path.join(DOCUMENT_DIR, filename)
+    if os.path.exists(filepath):
+        try:
+            os.remove(filepath)
+            with Session() as session:
+                session.query(DocumentCategory).filter(DocumentCategory.filename == filename).delete()
+                session.commit()
+            return RedirectResponse(url="/documents", status_code=303)
+        except Exception as e:
+            print(f"Error deleting document {filename}: {str(e)}")
+            return JSONResponse(status_code=500, content={"message": "Error deleting document"})
     return JSONResponse(status_code=404, content={"message": "File not found"})
 
 @app.get("/api/images")
@@ -554,18 +658,145 @@ async def api_image_list(page: int = 1, per_page: int = 12, category_id: Optiona
             "total": total
         })
 
+@app.get("/documents", response_class=HTMLResponse)
+async def document_page(request: Request, page: int = 1, per_page: int = 20, user: str = Depends(require_login)):
+    user_obj = get_user_with_permissions(request)
+    with Session() as session:
+        categories = session.query(Category).order_by(Category.id).all()
+        all_files = sorted(
+            os.listdir(DOCUMENT_DIR),
+            key=lambda f: os.path.getctime(os.path.join(DOCUMENT_DIR, f)),
+            reverse=True
+        )
+        total = len(all_files)
+        start = (page - 1) * per_page
+        end = start + per_page
+        documents = all_files[start:end]
+        total_pages = (total + per_page - 1) // per_page
+        return templates.TemplateResponse("documents.html", {
+            "request": request,
+            "documents": documents,
+            "page": page,
+            "total_pages": total_pages,
+            "user": user_obj,
+            "categories": categories
+        })
+
+@app.get("/api/documents")
+async def api_document_list(page: int = 1, per_page: int = 20, category_id: Optional[str] = Query(None), user: str = Depends(require_login)):
+    with Session() as session:
+        all_files = sorted(
+            os.listdir(DOCUMENT_DIR),
+            key=lambda f: os.path.getctime(os.path.join(DOCUMENT_DIR, f)),
+            reverse=True
+        )
+        if category_id == "all":
+            pass
+        elif category_id and category_id.isdigit():
+            filtered_filenames = [dc.filename for dc in session.query(DocumentCategory).filter(DocumentCategory.category_id == int(category_id)).all()]
+            all_files = [f for f in all_files if f in filtered_filenames]
+        else:
+            filtered_filenames = [dc.filename for dc in session.query(DocumentCategory).all()]
+            all_files = [f for f in all_files if f not in filtered_filenames]
+        total = len(all_files)
+        start = (page - 1) * per_page
+        end = start + per_page
+        documents = all_files[start:end]
+        return JSONResponse({
+            "documents": documents,
+            "page": page,
+            "total": total
+        })
+
+@app.get("/api/download-document/{filename}")
+async def download_single_document(filename: str, user: str = Depends(require_permission("download"))):
+    """Download a single document with forced download header"""
+    filepath = os.path.join(DOCUMENT_DIR, filename)
+
+    if not os.path.exists(filepath):
+        return JSONResponse(status_code=404, content={"message": "File not found"})
+
+    # Force download by setting Content-Disposition header
+    def iterfile():
+        with open(filepath, mode="rb") as file:
+            yield from file
+
+    return StreamingResponse(
+        iterfile(),
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        }
+    )
+
+@app.post("/api/download-documents")
+async def download_documents(request: Request, user: str = Depends(require_permission("download"))):
+    data = await request.json()
+    filenames = data.get('filenames', [])
+
+    if not filenames:
+        return JSONResponse(status_code=400, content={"message": "No files specified"})
+
+    # Create a ZIP file in memory
+    zip_buffer = io.BytesIO()
+
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        for filename in filenames:
+            filepath = os.path.join(DOCUMENT_DIR, filename)
+            if os.path.exists(filepath):
+                zip_file.write(filepath, filename)
+
+    zip_buffer.seek(0)
+
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f"attachment; filename=documents_{int(time.time())}.zip"
+        }
+    )
+
+@app.post("/api/delete-documents")
+async def delete_documents(request: Request, user: str = Depends(require_permission("delete"))):
+    data = await request.json()
+    filenames = data.get('filenames', [])
+
+    if not filenames:
+        return JSONResponse(status_code=400, content={"message": "No files specified"})
+
+    deleted_count = 0
+    with Session() as session:
+        for filename in filenames:
+            filepath = os.path.join(DOCUMENT_DIR, filename)
+            if os.path.exists(filepath):
+                try:
+                    os.remove(filepath)
+                    session.query(DocumentCategory).filter(DocumentCategory.filename == filename).delete()
+                    deleted_count += 1
+                except Exception as e:
+                    print(f"Error deleting {filename}: {str(e)}")
+
+        try:
+            session.commit()
+        except Exception as e:
+            print(f"Error updating database: {str(e)}")
+            return JSONResponse(status_code=500, content={"message": "Error updating database"})
+
+    return JSONResponse({"deleted": deleted_count, "message": f"Deleted {deleted_count} file(s)"})
+
 @app.get("/manage-categories", response_class=HTMLResponse)
-async def manage_categories_form(request: Request, user: str = Depends(require_login)):
+async def manage_categories_form(request: Request, user: str = Depends(require_admin)):
+    user_obj = get_user_with_permissions(request)
     with Session() as session:
         categories = session.query(Category).order_by(Category.id).all()
         return templates.TemplateResponse("manage_categories.html", {
             "request": request,
-            "user": user,
+            "user": user_obj,
             "categories": categories
         })
 
 @app.post("/create-category")
-async def create_category(name: str = Form(...), user: str = Depends(require_login)):
+async def create_category(name: str = Form(...), user: str = Depends(require_admin)):
     if name.lower() == "all":
         return JSONResponse(status_code=400, content={"message": "Category name 'All' is reserved"})
     with Session() as session:
@@ -580,12 +811,13 @@ async def create_category(name: str = Form(...), user: str = Depends(require_log
     return RedirectResponse(url="/manage-categories", status_code=303)
 
 @app.post("/delete-category")
-async def delete_category(category_id: int = Form(...), user: str = Depends(require_login)):
+async def delete_category(category_id: int = Form(...), user: str = Depends(require_admin)):
     if category_id == 0:
         return JSONResponse(status_code=400, content={"message": "Cannot delete 'All' category"})
     with Session() as session:
         session.query(ImageCategory).filter(ImageCategory.category_id == category_id).delete()
         session.query(VideoCategory).filter(VideoCategory.category_id == category_id).delete()
+        session.query(DocumentCategory).filter(DocumentCategory.category_id == category_id).delete()
         session.query(Category).filter(Category.id == category_id).delete()
         try:
             session.commit()
@@ -593,6 +825,86 @@ async def delete_category(category_id: int = Form(...), user: str = Depends(requ
             print(f"Error deleting category: {str(e)}")
             return JSONResponse(status_code=500, content={"message": "Error deleting category"})
     return RedirectResponse(url="/manage-categories", status_code=303)
+
+@app.get("/admin/users", response_class=HTMLResponse)
+async def admin_users_page(request: Request, user: str = Depends(require_admin)):
+    user_obj = get_user_with_permissions(request)
+    with Session() as session:
+        users = session.query(User).all()
+        return templates.TemplateResponse("admin_users.html", {
+            "request": request,
+            "user": user_obj,
+            "users": users,
+            "error": request.query_params.get("error"),
+            "success": request.query_params.get("success")
+        })
+
+@app.post("/admin/users/create")
+async def create_user(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    is_admin: Optional[str] = Form(None),
+    can_upload: Optional[str] = Form(None),
+    can_download: Optional[str] = Form(None),
+    can_delete: Optional[str] = Form(None),
+    can_view_videos: Optional[str] = Form(None),
+    can_view_images: Optional[str] = Form(None),
+    can_view_documents: Optional[str] = Form(None),
+    can_view_categories: Optional[str] = Form(None),
+    can_view_users: Optional[str] = Form(None),
+    user: str = Depends(require_admin)
+):
+    with Session() as session:
+        # Check if username already exists
+        existing = session.query(User).filter(User.username == username).first()
+        if existing:
+            return RedirectResponse(url="/admin/users?error=Username already exists", status_code=303)
+
+        new_user = User(
+            username=username,
+            password=password,  # In production, hash this!
+            is_admin=bool(is_admin),
+            can_upload=bool(can_upload),
+            can_download=bool(can_download),
+            can_delete=bool(can_delete),
+            can_view_videos=bool(can_view_videos),
+            can_view_images=bool(can_view_images),
+            can_view_documents=bool(can_view_documents),
+            can_view_categories=bool(can_view_categories),
+            can_view_users=bool(can_view_users)
+        )
+        session.add(new_user)
+        try:
+            session.commit()
+        except Exception as e:
+            print(f"Error creating user: {str(e)}")
+            return RedirectResponse(url="/admin/users?error=Error creating user", status_code=303)
+
+    return RedirectResponse(url="/admin/users?success=User created successfully", status_code=303)
+
+@app.post("/admin/users/delete")
+async def delete_user(
+    user_id: int = Form(...),
+    user: str = Depends(require_admin)
+):
+    with Session() as session:
+        user_to_delete = session.query(User).filter(User.id == user_id).first()
+        if not user_to_delete:
+            return RedirectResponse(url="/admin/users?error=User not found", status_code=303)
+
+        # Prevent deleting yourself
+        if user_to_delete.username == user:
+            return RedirectResponse(url="/admin/users?error=Cannot delete yourself", status_code=303)
+
+        session.delete(user_to_delete)
+        try:
+            session.commit()
+        except Exception as e:
+            print(f"Error deleting user: {str(e)}")
+            return RedirectResponse(url="/admin/users?error=Error deleting user", status_code=303)
+
+    return RedirectResponse(url="/admin/users?success=User deleted successfully", status_code=303)
 
 if __name__ == '__main__':
     import uvicorn

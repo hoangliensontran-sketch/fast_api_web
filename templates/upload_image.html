@@ -144,12 +144,26 @@
 <body>
     <div class="navbar">
         <a href="/">Home</a>
-        <a href="/videos">Videos</a>
-        <a href="/upload">Upload Video</a>
-        <a href="/images">Images</a>
-        <a href="/manage-categories">Manage Categories</a>
-        <div class="spacer"></div>
-        <a href="/logout" class="user-info" onclick="return confirm('Are you sure you want to logout?')">Logout ({{ user }})</a>
+        {% if user %}
+            <a href="/videos">Videos</a>
+            <a href="/images">Images</a>
+            <a href="/documents">Documents</a>
+
+            {% if user.can_upload %}
+            <a href="/upload-files">Upload Files</a>
+            {% endif %}
+
+            {% if user.is_admin %}
+            <a href="/manage-categories">Manage Categories</a>
+            <a href="/admin/users">User Management</a>
+            {% endif %}
+
+            <div class="spacer"></div>
+            <a href="/logout" class="user-info" onclick="return confirm('Are you sure you want to logout?')">Logout ({{ user.username }})</a>
+        {% else %}
+            <div class="spacer"></div>
+            <a href="/login">Login</a>
+        {% endif %}
     </div>
 
     <div class="upload-form">

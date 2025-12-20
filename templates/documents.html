@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Document List</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0 20px;
+        }
+
+        .navbar {
+            background-color: #333;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            padding: 10px 16px;
+        }
+
+        .navbar a {
+            color: #f2f2f2;
+            text-decoration: none;
+            padding: 12px 16px;
+            display: block;
+        }
+
+        .navbar a:hover {
+            background-color: #ddd;
+            color: black;
+        }
+
+        .navbar .spacer {
+            flex-grow: 1;
+        }
+
+        .navbar .user-info {
+            margin-left: auto;
+            color: #f2f2f2;
+            padding: 12px 16px;
+            cursor: pointer;
+        }
+
+        @media (max-width: 600px) {
+            .navbar {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .navbar a,
+            .navbar .user-info {
+                width: 100%;
+                padding: 10px 12px;
+            }
+
+            .navbar .user-info {
+                margin-left: 0;
+            }
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .document-item {
+            border: 1px solid #ddd;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: all 0.2s ease;
+        }
+
+        .document-item:hover {
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            background: #fff;
+        }
+
+        .document-item.selected {
+            background: #e3f2fd;
+            border-color: #2196F3;
+        }
+
+        .document-checkbox {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .document-icon {
+            font-size: 40px;
+            flex-shrink: 0;
+        }
+
+        .document-info {
+            flex-grow: 1;
+            min-width: 0;
+        }
+
+        .filename {
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 5px;
+            word-break: break-word;
+            color: #333;
+        }
+
+        .file-meta {
+            font-size: 12px;
+            color: #666;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .file-size {
+            color: #888;
+        }
+
+        .file-date {
+            color: #888;
+        }
+
+        .document-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            flex-shrink: 0;
+        }
+
+        .download-btn,
+        .delete-btn {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        .download-btn {
+            background-color: #4CAF50;
+            color: white;
+        }
+
+        .download-btn:hover {
+            background-color: #45a049;
+        }
+
+        .delete-btn {
+            background-color: #ff4d4d;
+            color: white;
+        }
+
+        .delete-btn:hover {
+            background-color: #e60000;
+        }
+
+        #loading {
+            text-align: center;
+            padding: 20px;
+            display: none;
+        }
+
+        .category-filter {
+            margin: 20px 0;
+            text-align: left;
+            max-width: 300px;
+        }
+
+        .category-filter select {
+            padding: 8px;
+            font-size: 16px;
+            border-radius: 4px;
+            width: 100%;
+        }
+
+        .category-filter label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 16px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #888;
+        }
+
+        .empty-state-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        .empty-state-text {
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+
+        .empty-state-subtext {
+            font-size: 14px;
+            color: #aaa;
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin: 20px 0;
+            padding: 15px;
+            background: #f5f5f5;
+            border-radius: 8px;
+            flex-wrap: wrap;
+        }
+
+        .toolbar-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .toolbar-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .select-all-btn {
+            background-color: #2196F3;
+            color: white;
+        }
+
+        .select-all-btn:hover:not(:disabled) {
+            background-color: #1976D2;
+        }
+
+        .download-selected-btn {
+            background-color: #4CAF50;
+            color: white;
+        }
+
+        .download-selected-btn:hover:not(:disabled) {
+            background-color: #45a049;
+        }
+
+        .delete-selected-btn {
+            background-color: #ff4d4d;
+            color: white;
+        }
+
+        .delete-selected-btn:hover:not(:disabled) {
+            background-color: #e60000;
+        }
+
+        .selection-count {
+            color: #666;
+            font-size: 14px;
+            margin-left: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="navbar">
+        <a href="/">Home</a>
+        {% if user %}
+            {% if user.can_view_videos %}
+            <a href="/videos">Videos</a>
+            {% endif %}
+            {% if user.can_view_images %}
+            <a href="/images">Images</a>
+            {% endif %}
+            {% if user.can_view_documents %}
+            <a href="/documents">Documents</a>
+            {% endif %}
+
+            {% if user.can_upload %}
+            <a href="/upload-files">Upload Files</a>
+            {% endif %}
+
+            {% if user.can_view_categories %}
+            <a href="/manage-categories">Manage Categories</a>
+            {% endif %}
+            {% if user.can_view_users %}
+            <a href="/admin/users">User Management</a>
+            {% endif %}
+
+            <div class="spacer"></div>
+            <a href="/logout" class="user-info" onclick="return confirm('Are you sure you want to logout?')">Logout ({{ user.username }})</a>
+        {% else %}
+            <div class="spacer"></div>
+            <a href="/login">Login</a>
+        {% endif %}
+    </div>
+
+    <div class="category-filter">
+        <label for="category-select">Select Category:</label>
+        <select id="category-select" onchange="filterByCategory()">
+            <option value="">No category</option>
+            <option value="all" selected>All</option>
+            {% for category in categories if category.id != 0 %}
+            <option value="{{ category.id }}">{{ category.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="toolbar" id="toolbar" style="display: none;">
+        <button class="toolbar-btn select-all-btn" id="selectAllBtn" onclick="toggleSelectAll()">
+            <span id="selectAllText">Select All</span>
+        </button>
+        <button class="toolbar-btn download-selected-btn" id="downloadSelectedBtn" onclick="downloadSelected()" disabled>
+            Download Selected
+        </button>
+        <button class="toolbar-btn delete-selected-btn" id="deleteSelectedBtn" onclick="deleteSelected()" disabled>
+            Delete Selected
+        </button>
+        <span class="selection-count" id="selectionCount"></span>
+    </div>
+
+    <div id="document-container" class="grid"></div>
+    <div id="loading">Loading...</div>
+
+    <script>
+        let page = 1;
+        const perPage = 20;
+        let loading = false;
+        let reachedEnd = false;
+        let selectedCategory = 'all';
+        let selectedFiles = new Set();
+        let allLoadedFiles = [];
+
+        function getFileIcon(filename) {
+            const ext = filename.split('.').pop().toLowerCase();
+            const icons = {
+                'pdf': '📄',
+                'doc': '📝', 'docx': '📝',
+                'xls': '📊', 'xlsx': '📊',
+                'ppt': '📊', 'pptx': '📊',
+                'txt': '📃',
+                'zip': '🗜️', 'rar': '🗜️', '7z': '🗜️',
+                'mp3': '🎵', 'wav': '🎵', 'flac': '🎵',
+                'mp4': '🎥', 'mov': '🎥', 'avi': '🎥', 'mkv': '🎥',
+                'jpg': '🖼️', 'jpeg': '🖼️', 'png': '🖼️', 'gif': '🖼️',
+                'html': '🌐', 'css': '🎨', 'js': '⚙️',
+                'json': '📋', 'xml': '📋', 'csv': '📋'
+            };
+            return icons[ext] || '📎';
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        }
+
+        function formatDate(timestamp) {
+            const date = new Date(timestamp * 1000);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+            if (diffDays === 0) return 'Today';
+            if (diffDays === 1) return 'Yesterday';
+            if (diffDays < 7) return `${diffDays} days ago`;
+
+            return date.toLocaleDateString();
+        }
+
+        function toggleFileSelection(filename) {
+            if (selectedFiles.has(filename)) {
+                selectedFiles.delete(filename);
+                document.querySelector(`[data-filename="${filename}"]`)?.classList.remove('selected');
+            } else {
+                selectedFiles.add(filename);
+                document.querySelector(`[data-filename="${filename}"]`)?.classList.add('selected');
+            }
+            updateSelectionUI();
+        }
+
+        function toggleSelectAll() {
+            if (selectedFiles.size === allLoadedFiles.length) {
+                // Deselect all
+                selectedFiles.clear();
+                document.querySelectorAll('.document-item').forEach(item => {
+                    item.classList.remove('selected');
+                    item.querySelector('.document-checkbox').checked = false;
+                });
+            } else {
+                // Select all
+                selectedFiles = new Set(allLoadedFiles);
+                document.querySelectorAll('.document-item').forEach(item => {
+                    item.classList.add('selected');
+                    item.querySelector('.document-checkbox').checked = true;
+                });
+            }
+            updateSelectionUI();
+        }
+
+        function updateSelectionUI() {
+            const count = selectedFiles.size;
+            const selectAllBtn = document.getElementById('selectAllBtn');
+            const selectAllText = document.getElementById('selectAllText');
+            const downloadBtn = document.getElementById('downloadSelectedBtn');
+            const deleteBtn = document.getElementById('deleteSelectedBtn');
+            const selectionCount = document.getElementById('selectionCount');
+
+            if (count === allLoadedFiles.length && count > 0) {
+                selectAllText.textContent = 'Deselect All';
+            } else {
+                selectAllText.textContent = 'Select All';
+            }
+
+            // Don't re-enable buttons if operations are in progress
+            if (!isDownloading) {
+                downloadBtn.disabled = count === 0;
+            }
+            if (!isDeleting) {
+                deleteBtn.disabled = count === 0;
+            }
+            selectionCount.textContent = count > 0 ? `${count} file${count > 1 ? 's' : ''} selected` : '';
+        }
+
+        let isDownloading = false;
+        let isDeleting = false;
+
+        async function downloadSelected() {
+            if (selectedFiles.size === 0 || isDownloading) return;
+
+            const filenames = Array.from(selectedFiles);
+            const downloadBtn = document.getElementById('downloadSelectedBtn');
+
+            if (filenames.length === 1) {
+                // Single file - direct download
+                const filename = filenames[0];
+                const downloadUrl = `/api/download-document/${encodeURIComponent(filename)}`;
+                window.location.href = downloadUrl;
+            } else {
+                // Multiple files - create ZIP with loading indicator
+                isDownloading = true;
+                const originalText = downloadBtn.textContent;
+                downloadBtn.textContent = 'Preparing download...';
+                downloadBtn.disabled = true;
+
+                try {
+                    const response = await fetch('/api/download-documents', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ filenames: filenames })
+                    });
+
+                    if (response.ok) {
+                        downloadBtn.textContent = 'Creating ZIP file...';
+                        const blob = await response.blob();
+
+                        downloadBtn.textContent = 'Downloading...';
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `documents_${Date.now()}.zip`;
+                        document.body.appendChild(a);
+                        a.click();
+
+                        // Clean up
+                        setTimeout(() => {
+                            window.URL.revokeObjectURL(url);
+                            document.body.removeChild(a);
+                        }, 100);
+
+                        downloadBtn.textContent = 'Download complete!';
+                        setTimeout(() => {
+                            downloadBtn.textContent = originalText;
+                            downloadBtn.disabled = false;
+                            isDownloading = false;
+                        }, 2000);
+                    } else {
+                        alert('Failed to download files');
+                        downloadBtn.textContent = originalText;
+                        downloadBtn.disabled = false;
+                        isDownloading = false;
+                    }
+                } catch (error) {
+                    console.error('Download error:', error);
+                    alert('Failed to download files: ' + error.message);
+                    downloadBtn.textContent = originalText;
+                    downloadBtn.disabled = false;
+                    isDownloading = false;
+                }
+            }
+        }
+
+        async function deleteSelected() {
+            if (selectedFiles.size === 0 || isDeleting) return;
+
+            const count = selectedFiles.size;
+            if (!confirm(`Are you sure you want to delete ${count} file${count > 1 ? 's' : ''}?`)) {
+                return;
+            }
+
+            const filenames = Array.from(selectedFiles);
+            const deleteBtn = document.getElementById('deleteSelectedBtn');
+            const originalText = deleteBtn.textContent;
+
+            isDeleting = true;
+            deleteBtn.textContent = 'Deleting...';
+            deleteBtn.disabled = true;
+
+            try {
+                const response = await fetch('/api/delete-documents', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ filenames: filenames })
+                });
+
+                if (response.ok) {
+                    deleteBtn.textContent = 'Deleted! Reloading...';
+                    // Reload the page after a short delay
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 500);
+                } else {
+                    alert('Failed to delete files');
+                    deleteBtn.textContent = originalText;
+                    deleteBtn.disabled = false;
+                    isDeleting = false;
+                }
+            } catch (error) {
+                console.error('Delete error:', error);
+                alert('Failed to delete files: ' + error.message);
+                deleteBtn.textContent = originalText;
+                deleteBtn.disabled = false;
+                isDeleting = false;
+            }
+        }
+
+        function filterByCategory() {
+            selectedCategory = document.getElementById('category-select').value;
+            page = 1;
+            reachedEnd = false;
+            allLoadedFiles = [];
+            selectedFiles.clear();
+            document.getElementById('document-container').innerHTML = '';
+            loadDocuments();
+        }
+
+        async function loadDocuments() {
+            if (loading || reachedEnd) return;
+            loading = true;
+            document.getElementById('loading').style.display = 'block';
+
+            try {
+                const url = selectedCategory
+                    ? `/api/documents?page=${page}&per_page=${perPage}&category_id=${selectedCategory}`
+                    : `/api/documents?page=${page}&per_page=${perPage}`;
+                const res = await fetch(url);
+                const data = await res.json();
+                const container = document.getElementById('document-container');
+
+                if (!data.documents || data.documents.length === 0) {
+                    reachedEnd = true;
+                    if (page === 1) {
+                        container.innerHTML = `
+                            <div class="empty-state" style="grid-column: 1 / -1;">
+                                <div class="empty-state-icon">📂</div>
+                                <div class="empty-state-text">No documents found</div>
+                                <div class="empty-state-subtext">Upload some documents to get started</div>
+                            </div>
+                        `;
+                    }
+                    document.getElementById('loading').innerText = "No more documents";
+                    return;
+                }
+
+                // Fetch file stats for all documents
+                for (const filename of data.documents) {
+                    allLoadedFiles.push(filename);
+
+                    const div = document.createElement('div');
+                    div.className = 'document-item';
+                    div.dataset.filename = filename;
+
+                    const icon = getFileIcon(filename);
+                    const downloadUrl = `/api/download-document/${encodeURIComponent(filename)}`;
+
+                    // Get file extension and clean filename for display
+                    const ext = filename.split('.').pop().toUpperCase();
+                    const displayName = filename.length > 40 ? filename.substring(0, 37) + '...' : filename;
+
+                    const isChecked = selectedFiles.has(filename);
+                    if (isChecked) {
+                        div.classList.add('selected');
+                    }
+
+                    div.innerHTML = `
+                        <input type="checkbox" class="document-checkbox" onchange="toggleFileSelection('${filename}')" ${isChecked ? 'checked' : ''}>
+                        <div class="document-icon">${icon}</div>
+                        <div class="document-info">
+                            <div class="filename" title="${filename}">${displayName}</div>
+                            <div class="file-meta">
+                                <span class="file-type">${ext}</span>
+                            </div>
+                        </div>
+                        <div class="document-actions">
+                            <a href="${downloadUrl}" class="download-btn">Download</a>
+                            <form method="post" action="/delete-document" onsubmit="return confirm('Delete this document?');" style="margin: 0;">
+                                <input type="hidden" name="filename" value="${filename}">
+                                <button type="submit" class="delete-btn">Delete</button>
+                            </form>
+                        </div>
+                    `;
+                    container.appendChild(div);
+                }
+
+                // Show toolbar if we have documents
+                if (allLoadedFiles.length > 0) {
+                    document.getElementById('toolbar').style.display = 'flex';
+                }
+
+                page++;
+                document.getElementById('loading').style.display = 'none';
+            } catch (error) {
+                console.error("Error loading documents:", error);
+                document.getElementById('loading').innerText = "Failed to load documents";
+            } finally {
+                loading = false;
+            }
+
+            if (document.body.scrollHeight <= window.innerHeight && !reachedEnd) {
+                loadDocuments();
+            }
+        }
+
+        window.addEventListener('scroll', () => {
+            if ((window.innerHeight + window.scrollY) >= document.body.scrollHeight - 200) {
+                loadDocuments();
+            }
+        });
+
+        window.addEventListener('load', () => {
+            loadDocuments();
+        });
+    </script>
+</body>
+</html>

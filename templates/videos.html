@@ -1,9 +1,8 @@
-<!-- /home/sonthl/setup/docker/media-lite/templates/videos.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Video List</title>
+    <title>Video Library</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body {
@@ -43,41 +42,66 @@
             cursor: pointer;
         }
 
-        @media (max-width: 600px) {
-            .navbar {
-                flex-direction: column;
-                align-items: flex-start;
-            }
+        .container {
+            max-width: 1200px;
+            margin: 20px auto;
+        }
 
-            .navbar a,
-            .navbar .user-info {
-                width: 100%;
-                padding: 10px 12px;
-            }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
 
-            .navbar .user-info {
-                margin-left: 0;
-            }
+        .category-filter {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 0;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #333;
+        }
+
+        .form-group select {
+            width: 100%;
+            max-width: 300px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            background-color: white;
         }
 
         .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-            gap: 20px;
-            margin-top: 20px;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 24px;
+            margin-bottom: 30px;
         }
 
         .video-item {
-            border: 1px solid #ccc;
-            padding: 10px;
-            background: #f9f9f9;
+            background: white;
             border-radius: 8px;
-            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+            transition: box-shadow 0.3s ease;
+        }
+
+        .video-item:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
         }
 
         /* Portrait videos take up less horizontal space */
         .video-item.portrait {
-            max-width: 300px;
+            max-width: 320px;
             justify-self: center;
         }
 
@@ -85,19 +109,22 @@
             position: relative;
             width: 100%;
             cursor: pointer;
-            background: transparent;
+            background: #000;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 180px;
+        }
+
+        .thumbnail-container.portrait {
+            min-height: 250px;
         }
 
         .thumbnail-container img {
             width: 100%;
             height: auto;
-            object-fit: contain;
-            border-radius: 4px;
-        }
-
-        /* Portrait thumbnail styling */
-        .thumbnail-container.portrait img {
-            max-height: 400px;
+            display: block;
         }
 
         .thumbnail-container::before {
@@ -116,6 +143,7 @@
             opacity: 0.8;
             transition: opacity 0.3s ease;
             pointer-events: none;
+            z-index: 1;
         }
 
         .thumbnail-container::after {
@@ -132,6 +160,7 @@
             opacity: 0.8;
             transition: opacity 0.3s ease;
             pointer-events: none;
+            z-index: 2;
         }
 
         .thumbnail-container:hover::before,
@@ -141,18 +170,50 @@
             opacity: 1;
         }
 
-        .video-item video {
-            width: 100%;
-            height: auto;
-            object-fit: contain;
-            border-radius: 4px;
-            max-width: 100%;
-            max-height: 100%;
+        .video-info {
+            padding: 15px;
         }
 
-        /* Portrait video styling */
+        .filename {
+            font-size: 14px;
+            margin: 0 0 12px 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: #333;
+            font-weight: 500;
+        }
+
+        .video-player-container {
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 400px;
+            position: relative;
+            width: 100%;
+        }
+
+        .video-item video {
+            max-width: 100%;
+            max-height: 600px;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+            background: #000;
+        }
+
+        /* Portrait video styling - allow tall aspect ratio */
+        .video-item.portrait .video-player-container {
+            min-height: 500px;
+            max-height: 80vh;
+        }
+
         .video-item.portrait video {
-            max-height: 500px;
+            width: auto !important;
+            max-width: 100%;
+            height: auto;
+            max-height: 80vh;
         }
 
         /* Fullscreen video styles */
@@ -184,78 +245,122 @@
             background-color: black;
         }
 
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s ease;
+        }
+
+        .btn-danger {
+            background-color: #ff4d4d;
+            color: white;
+            width: 100%;
+        }
+
+        .btn-danger:hover {
+            background-color: #e60000;
+        }
+
         #loading {
             text-align: center;
-            padding: 20px;
+            padding: 30px;
             font-size: 16px;
             color: #888;
         }
 
-        .filename {
-            font-size: 14px;
-            margin: 8px 0;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            background: #f5f5f5;
+            border-radius: 8px;
         }
 
-        button {
-            padding: 6px 12px;
-            background-color: #ff4d4d;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
+        .empty-state h2 {
+            color: #666;
+            margin-bottom: 10px;
         }
 
-        button:hover {
-            background-color: #e60000;
+        .empty-state p {
+            color: #999;
         }
 
-        .category-filter {
-            margin: 20px 0;
-            text-align: left;
-            max-width: 300px;
-        }
+        @media (max-width: 600px) {
+            .navbar {
+                flex-direction: column;
+                align-items: flex-start;
+            }
 
-        .category-filter select {
-            padding: 8px;
-            font-size: 16px;
-            border-radius: 4px;
-            width: 100%;
-        }
+            .navbar a,
+            .navbar .user-info {
+                width: 100%;
+                padding: 10px 12px;
+            }
 
-        .category-filter label {
-            display: block;
-            margin-bottom: 5px;
-            font-size: 16px;
+            .navbar .user-info {
+                margin-left: 0;
+            }
+
+            .grid {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 <body>
     <div class="navbar">
         <a href="/">Home</a>
-        <a href="/upload">Upload Video</a>
-        <a href="/images">Images</a>
-        <a href="/upload-image">Upload Image</a>
-        <a href="/manage-categories">Manage Categories</a>
-        <div class="spacer"></div>
-        <a href="/logout" class="user-info" onclick="return confirm('Are you sure you want to logout?')">Logout ({{ user }})</a>
+        {% if user %}
+            {% if user.can_view_videos %}
+            <a href="/videos">Videos</a>
+            {% endif %}
+            {% if user.can_view_images %}
+            <a href="/images">Images</a>
+            {% endif %}
+            {% if user.can_view_documents %}
+            <a href="/documents">Documents</a>
+            {% endif %}
+
+            {% if user.can_upload %}
+            <a href="/upload-files">Upload Files</a>
+            {% endif %}
+
+            {% if user.can_view_categories %}
+            <a href="/manage-categories">Manage Categories</a>
+            {% endif %}
+            {% if user.can_view_users %}
+            <a href="/admin/users">User Management</a>
+            {% endif %}
+
+            <div class="spacer"></div>
+            <a href="/logout" class="user-info" onclick="return confirm('Are you sure you want to logout?')">Logout ({{ user.username }})</a>
+        {% else %}
+            <div class="spacer"></div>
+            <a href="/login">Login</a>
+        {% endif %}
     </div>
 
-    <div class="category-filter">
-        <label for="category-select">Select Category:</label>
-        <select id="category-select" onchange="filterByCategory()">
-            <option value="">No category</option>
-            <option value="all" selected>All</option>
-            {% for category in categories if category.id != 0 %}
-            <option value="{{ category.id }}">{{ category.name }}</option>
-            {% endfor %}
-        </select>
-    </div>
+    <div class="container">
+        <h1>Video Library</h1>
 
-    <div id="video-container" class="grid"></div>
-    <div id="loading">Loading...</div>
+        <div class="category-filter">
+            <div class="form-group">
+                <label for="category-select">Filter by Category:</label>
+                <select id="category-select" onchange="filterByCategory()">
+                    <option value="">No category</option>
+                    <option value="all" selected>All Categories</option>
+                    {% for category in categories if category.id != 0 %}
+                    <option value="{{ category.id }}">{{ category.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <div id="video-container" class="grid"></div>
+        <div id="loading">Loading videos...</div>
+    </div>
 
     <script>
         let page = 1;
@@ -266,30 +371,30 @@
 
         async function playVideo(element, filename, orientation) {
             const videoItem = element.closest('.video-item');
-            videoItem.innerHTML = `
-                <video controls playsinline>
-                    <source src="/static/videos/${filename}" type="video/mp4">
-                    Your browser does not support the video tag.
-                </video>
-                <div class="filename">${filename}</div>
-                <form method="post" action="/delete" onsubmit="return confirm('Delete this video?');">
-                    <input type="hidden" name="filename" value="${filename}">
-                    <button type="submit">Delete</button>
-                </form>
+
+            // Replace thumbnail with video player
+            element.parentElement.innerHTML = `
+                <div class="video-player-container">
+                    <video controls playsinline>
+                        <source src="/static/videos/${filename}" type="video/mp4">
+                        Your browser does not support the video tag.
+                    </video>
+                </div>
             `;
 
-            // Maintain portrait class if applicable
+            // Maintain portrait class if applicable for proper sizing
             if (orientation === 'portrait') {
                 videoItem.classList.add('portrait');
             }
 
             const video = videoItem.querySelector('video');
 
-            // No need to apply rotation transforms - the browser handles rotation metadata correctly
-            // The orientation class on the container ensures proper portrait/landscape display
-
-            video.play().catch(error => {
-                console.warn("Autoplay was prevented:", error);
+            // Wait for video metadata to load before playing
+            video.addEventListener('loadedmetadata', () => {
+                // Browser will automatically handle rotation metadata
+                video.play().catch(error => {
+                    console.warn("Autoplay was prevented:", error);
+                });
             });
         }
 
@@ -316,7 +421,15 @@
 
                 if (!data.videos || data.videos.length === 0) {
                     reachedEnd = true;
-                    document.getElementById('loading').innerText = "No more videos";
+                    if (page === 1) {
+                        container.innerHTML = `
+                            <div class="empty-state" style="grid-column: 1 / -1;">
+                                <h2>No Videos Found</h2>
+                                <p>There are no videos in this category yet.</p>
+                            </div>
+                        `;
+                    }
+                    document.getElementById('loading').style.display = 'none';
                     return;
                 }
 
@@ -337,11 +450,15 @@
                         <div class="thumbnail-container ${orientation === 'portrait' ? 'portrait' : ''}" onclick="playVideo(this, '${filename}', '${orientation}')">
                             <img class="thumbnail" src="${thumbnail}" alt="${filename}" onerror="this.src='/static/thumbnails/fallback.jpg?t=${Date.now()}';">
                         </div>
-                        <div class="filename">${filename}</div>
-                        <form method="post" action="/delete" onsubmit="return confirm('Delete this video?');">
-                            <input type="hidden" name="filename" value="${filename}">
-                            <button type="submit">Delete</button>
-                        </form>
+                        <div class="video-info">
+                            <div class="filename" title="${filename}">${filename}</div>
+                            {% if user.can_delete %}
+                            <form method="post" action="/delete" onsubmit="return confirm('Delete this video?');">
+                                <input type="hidden" name="filename" value="${filename}">
+                                <button type="submit" class="btn btn-danger">Delete</button>
+                            </form>
+                            {% endif %}
+                        </div>
                     `;
                     container.appendChild(div);
                 });
@@ -357,7 +474,7 @@
                 document.getElementById('loading').style.display = 'none';
             } catch (error) {
                 console.error("Error loading videos:", error);
-                document.getElementById('loading').innerText = "Failed to load videos";
+                document.getElementById('loading').innerHTML = '<div class="empty-state" style="grid-column: 1 / -1;"><h2>Failed to Load Videos</h2><p>Please try again later.</p></div>';
             } finally {
                 loading = false;
             }
